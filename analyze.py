@@ -1,10 +1,21 @@
 #!/usr/bin/env: python3
 
+# TODO: Build dictionary of collectors in order to classify 
+#       transactions by type: bills, groceries, etc
+#
+#       Prompt user for classification type upon encounter
+#       of unknown class
+
+
 import re
 
 money_pattern = re.compile('\d*[,]*\d+\.\d+')
 
-
+#
+# Creates a useful handle for where money goes to or comes from, called
+# a collector. I'm assuming these collectors are unique so that I can 
+# classify them as to what kind of transaction it is: bill, gas, etc.
+#
 def getCollectorString(line):
     result = ""
     for token in line:
@@ -14,15 +25,30 @@ def getCollectorString(line):
     return result.replace("\n", "")
 
 
-# TODO: Combine transactions to make the list more concise
+#
+# Helper function for making transaction list more concise. Returns
+# index of collector if it's in the list, -1 otherwise.
+#
+def getIndex(arr, collector):
+    index = 0
+    for line in arr:
+        if line[0] == collector:
+            return index
+        index += 1
+
+    return -1
+
+
+#
+# Parses an input file until a specified stop point. Uses a regular
+# expression to match a money line. Handles the special case for 
+# USAA internal transactions and generic transactions given the
+# file comes from USAA.
+#
 def getTransactions(f, stop_point):
-    money = 0.0
-    date = ""
-    found_money = False
     temp = []
     
     line = f.readline()
-    
     while line:
         
         # Break at next section
@@ -31,61 +57,65 @@ def getTransactions(f, stop_point):
         
         tokens = line.split(" ")
 
-        # If money is found, next line is where money was spent
-        if found_money:
-            new_line = [getCollectorString(tokens), date, money]
-            temp.append(new_line)
-
-            # Reset boolean so we can keep iterating
-            found_money = False
-
+        # Parse tokens looking for money pattern
         for token in tokens:
             if money_pattern.match(token):
-                date = tokens[0] # date is first index
+                date = tokens[0]                      # date is first index
                 money = float(token.replace(",", "")) # remove commas
-                # Now that we've found money, we need to get the 
-                # collector from the next line
-                found_money = True
-        
+                
+                # USAA formats their statements so that internal transactions
+                # only have one line. Consequently, if it's not an internal 
+                # transaction, read next line to get collector. Otherwise, trim
+                # up line appropriately.
+                if "USAA" not in tokens:
+                    line = f.readline()
+                    tokens = line.split(" ")
+
+                else:
+                    tokens = tokens[10:]
+
+                new_line = [getCollectorString(tokens), date, money]
+                temp.append(new_line)
+
 
         line = f.readline()
-
-    print(len(temp))
+    
+    # Now that we've built a list of transactions, make the list more 
+    # concise by combining common collectors. Do this by appending dates
+    # and incrementing total money spent or deposited.
     transactions = []
     for transaction in temp:
-        index = contains(transactions, transaction[0])
+        index = getIndex(transactions, transaction[0])
 
         if index != -1:
-            transactions[index][2] += transaction[2]
-            transactions[index][1] += transaction[1]
+            transactions[index][1] += ", " + transaction[1] # append dates
+            transactions[index][2] += transaction[2]        # increment total
         else:
             transactions.append(transaction)
             
 
     return transactions 
 
-   
-# TODO: Decide how to parse summary lines
-def getSummary(f):
-    date = ""
-    money = ""
 
-    line = f.readline()
-    while line:
-        temp = line.split(" ")
-      
-        k = input()
+def getClassifiers(file_name):
+    classifiers = {}
+
+    with open(file_name, "r") as f:
         line = f.readline()
 
+        while line:
+            tokens = line.split(", ")
+#            print(tokens[0])
+#            print(tokens[1].replace("\n", ""))
+            # first index is collector
+            # second is class
+            classifiers[tokens[0]] = tokens[1].replace("\n", "")
+#            print(str(classifiers))
+#            k = input()
 
-def contains(arr, collector):
-    index = 0
-    for line in arr:
-        if line[0] == collector:
-            return index
-        index += 1
+            line = f.readline()
 
-    return -1
+    return classifiers
 
 
 def main():
@@ -102,7 +132,9 @@ def main():
                 
         deposits = getTransactions(f, "    OTHER DEBITS\n")
         debits = getTransactions(f, " ACCOUNT BALANCE SUMMARY\n")
+   
+    classifiers = getClassifiers("collectors")
+    print(str(classifiers.values()))
 
-    print(len(debits))
 
 main()
