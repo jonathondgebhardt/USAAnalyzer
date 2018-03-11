@@ -1,15 +1,17 @@
 #!/usr/bin/env: python3
 
-# TODO: Build dictionary of collectors in order to classify 
-#       transactions by type: bills, groceries, etc
+# TODO: Prompt user for classification type upon encounter
+#       of unknown class.
 #
-#       Prompt user for classification type upon encounter
-#       of unknown class
-
+#       If a refund is received, there's no differentiation between
+#       the purchase and the refund. Maybe getting transaction type
+#       is useful.
+#
 
 import re
 
 money_pattern = re.compile('\d*[,]*\d+\.\d+')
+
 
 #
 # Creates a useful handle for where money goes to or comes from, called
@@ -97,6 +99,10 @@ def getTransactions(f, stop_point):
     return transactions 
 
 
+#
+# Builds dictionary of known classification types from argument file. Arrangement
+# is "Collector Handle": "Classification". Returns the list.
+#
 def getClassifiers(file_name):
     classifiers = {}
 
@@ -104,23 +110,49 @@ def getClassifiers(file_name):
         line = f.readline()
 
         while line:
+            # first index is collector, second is class
             tokens = line.split(", ")
-#            print(tokens[0])
-#            print(tokens[1].replace("\n", ""))
-            # first index is collector
-            # second is class
             classifiers[tokens[0]] = tokens[1].replace("\n", "")
-#            print(str(classifiers))
-#            k = input()
 
             line = f.readline()
 
     return classifiers
 
 
-def main():
-    #" ACCOUNT BALANCE SUMMARY\n":
+#
+# Builds a list of money spent on classifcation type. Returns 
+# the list, deposit total, debit total.
+#
+def getPortions(deposits, debits, classifiers):
+    temp = []
+    debit_total, deposit_total = 0.0, 0.0
 
+    # Prefill temp with known classes and initial money value. 
+    # These are retrieved from the value position in the dictionary.
+    for k, v in classifiers.items():
+        new_line = [v, 0.0]
+        if new_line not in temp:
+            temp.append(new_line)
+
+
+    # Iterate list incremementing appropriate class total
+    # TODO: Prompt user if unknown class is found
+    for transaction in deposits:
+        for record in temp:
+            if record[0] == classifiers.get(transaction[0]):
+                record[1] += transaction[2] # increment money
+                deposit_total += transaction[2]
+
+    for transaction in debits:
+        for record in temp:
+            if record[0] == classifiers.get(transaction[0]):
+                record[1] += transaction[2] # increment money
+                debit_total += transaction[2]
+
+    return temp, deposit_total, debit_total 
+
+
+def main():
     with open("20180216_raw", "r") as f:
         line = f.readline()
        
@@ -133,8 +165,21 @@ def main():
         deposits = getTransactions(f, "    OTHER DEBITS\n")
         debits = getTransactions(f, " ACCOUNT BALANCE SUMMARY\n")
    
+    
     classifiers = getClassifiers("collectors")
-    print(str(classifiers.values()))
+    portions, deposit_total, debit_total = getPortions(deposits, debits, classifiers)
+    val_total = 0.0
+    for line in portions:
+        val = 0.0
+
+        if line[0] == "deposit":
+            val = line[1] / deposit_total
+        else:
+            val = line[1] / debit_total
+            val_total += val
+
+        print("{}:\n{:10.2f} -- {:.2%}".format(line[0], line[1], val)) 
+
 
 
 main()
