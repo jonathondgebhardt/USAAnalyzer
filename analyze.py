@@ -33,6 +33,7 @@ This script has some drawbacks:
 #       Use transaction class
 #
 
+
 import re
 import os.path
 import argparse
@@ -43,19 +44,18 @@ class Transaction:
     def __init__(self, name, transaction_type, transaction_list):
         self.name = name
         self.transaction_type = transaction_type
-        self.transaction_list = transaction_list
+        self.transaction_list = []
+        self.transaction_list.append(transaction_list)
 
     def __str__(self):
         return self.name + ": " + self.transaction_type + ", " + str(self.transaction_list)
-        
-    def set_transaction_type(self, transaction_type):
-        # 1: "deposit", 2: "misc", 3: "grocery", 4: "restaurant", 5: "bill", 6: "coffee", 7: "saving"
-        self.transaction_type = transaction_type
-    
-    def add_transaction(self, new_transaction):
-        # Expecting a tuple: (date, amount)
-        self.transaction_list.append(new_transaction)
 
+    def __eq__(self, other):
+        if isinstance(self, other.__class__):
+            return self.name == other.name
+        else:
+            return False
+        
     def get_transaction_total(self):
         total = 0
         
@@ -64,18 +64,13 @@ class Transaction:
         
         return total
 
-    
-
 
 class USAAnalyzer:
 
     _money_pattern = re.compile('\d*[,]*\d+\.\d+')
-    _collector_types = {1: "deposit", 2: "misc", 3: "grocery", 4: "restaurant", 5: "bill", 6: "coffee", 7: "saving"}
-    #_deposits = []
-    #_debits = []
+    _classifiers = {1: "deposit", 2: "misc", 3: "grocery", 4: "restaurant", 5: "bill", 6: "coffee", 7: "saving"}
     _portions = []
     _collectors = []
-    _classifiers = {}
     _transactions = []
 
     def __init__(self, file_name):
@@ -89,54 +84,50 @@ class USAAnalyzer:
                     break
                 line = f.readline()
             
-            # Build a list of deposits and debits.These lists are 
-            # condensed, meaning that each collector takes at most one line
-            # self._deposits = self._get_transactions(f, "    OTHER DEBITS\n")
-            # self._debits = self._get_transactions(f, " ACCOUNT BALANCE SUMMARY\n")
-       
+            # Build a list of transactions. It will contain debits and deposits
+            # together.
             self._get_transactions(f)
 
+        # Condense the list to make it more succinct
         self._condense_transactions()
 
         # Retrieve a list of collectors. Add unknown ones if necessary. 
         if os.path.isfile(".collectors"): 
             # If collectors file doesn't exist, read from file
             print("Found collectors file")
-            collectors = self._get_collectors()
+            self._read_collector_file()
             
         else:
             # No list of collectors in working directory, build one from
             # list of deposits and debits and write contents to file
             print("Collectors file not found, performing setup")
-            self._build_collectors()
+            self._write_collector_file()
 
-        # should condense transactions here
-
-        # Build a dictionary s.t. keys are classification types and values
-        # are total amount spent on that type
-        self._get_classifiers(collectors)
+        # TODO: classify transactions
 
         
-    
     def __str__(self):
         portions, deposit_total, debit_total = self._get_portions()
         val_total = 0.0
         result = ""
         open_string = "{}:\n{:10.2f} -- {:.2%}"
 
-        for line in portions:
-            val = 0.0
+        result = ""
+        for t in self._transactions:
+            result += t + '\n'
 
-            if line[0] == "deposit":
-                val = line[1] / deposit_total
-            else:
-                val = line[1] / debit_total
-                val_total += val
+        # for line in portions:
+        #     val = 0.0
 
-            result += "\n" + open_string.format(line[0], line[1], val)
+        #     if line[0] == "deposit":
+        #         val = line[1] / deposit_total
+        #     else:
+        #         val = line[1] / debit_total
+        #         val_total += val
+
+        #     result += "\n" + open_string.format(line[0], line[1], val)
 
         return result
-
 
     #
     # Creates a useful handle for where money goes to or comes from, called
@@ -150,21 +141,6 @@ class USAAnalyzer:
                 result += token + " "
 
         return result.strip()
-
-
-    #
-    # Helper function for making transaction list more concise. Returns
-    # index of collector if it's in the list, -1 otherwise.
-    #
-    def _get_index(self, arr, collector):
-        index = 0
-        for line in arr:
-            if line[0] == collector:
-                return index
-            index += 1
-
-        return -1
-
 
     #
     # Parses an input file until a specified stop point. Uses a regular
@@ -204,60 +180,46 @@ class USAAnalyzer:
                         tokens = tokens[10:]
 
                     name = self._get_collector_string(tokens)
-                    #new_line = [name, date, money]
 
                     transaction = Transaction(name, transaction_type, [date, money])
                     self._transactions.append(transaction)
-                    #temp.append(new_line)
 
             line = f.readline()
-        
-        
+          
+    #
+    # Group transactions by transaction name in order to make list
+    # more concise.
+    #
     def _condense_transactions(self):
-        # TODO: Is this necessary? It might be creating problems.
-        #
-        # Now that we've built a list of transactions, make the list more 
-        # concise by combining common collectors. Do this by appending dates
-        # and incrementing total money spent or deposited.
-        # transactions = []
-        # for transaction in temp:
-        #     index = self._get_index(transactions, transaction[0])
-
-        #     if index != -1:
-        #         transactions[index][1] += ", " + transaction[1] # append dates
-        #         transactions[index][2] += transaction[2]        # increment total
-        #     else:
-        #         transactions.append(transaction)
-
-        temp_transaction_list = []
+        new_transaction_list = []
         
         for i in range(len(self._transactions)):
-            t = self._transactions[i]
-            collector = t.name
-            collector_total = 0
+            current = self._transactions[i]
+            
+            # TODO: Fix this line
+            if current not in self._transactions:
+                for j in range(i, len(self._transactions)):
+                    next_t = self._transactions[j]
 
-            for j in range(i, len(self._transactions)):
-                if (self._transactions[j].name == collector):
-                    collector_total += self._transactions[j].get_transaction_total()
+                    if next_t.name == current.name and next_t.transaction_type == current.transaction_type:
+                        current.transaction_list.append(next_t.transaction_list.pop())
+                        
                 
-                print(collector, collector_total)
-
-
-
-        return 0
+                new_transaction_list.append(current)
+                
+        self._transactions = new_transaction_list
 
     #
-    # Builds dictionary of known classification types from argument file. Arrangement
-    # is "Collector Handle": "Classification". Returns the dictionary.
+    # Helper function for _condense_transactions. Overriding the __eq__
+    # function will eliminate the need of this function.
     #
-    def _get_classifiers(self, collectors):
-        for line in self._collectors:
-            # first index is collector, second is class
-            self._classifiers[line[0]] = line[1].strip()
+    def _contains(self, arr, item):
+        for a in arr:
+            if a.name == item.name:
+                return True
 
+        return False
 
-    #
-    # TODO: Handle transaction objects instead of strings
     #
     # Builds a list of money spent on classifcation type. Returns 
     # the list, deposit total, debit total.
@@ -287,35 +249,40 @@ class USAAnalyzer:
 
         for t in self._transactions:
             if t.transaction_type == 'deposit':
-                temp[0][1] += t.getTransactionTotal
-                deposit_total += transaction[2]
+                # The first index in temp is deposit so we can reference
+                # it directly. Increment the deposit's total by that amount
+                # and increment our counter by that amount.
+                temp[0][1] += t.get_transaction_total()
+                deposit_total += t.get_transaction_total()
+            else:
+                # TODO: Need to increment by appropriate class
+                continue
 
         return temp, deposit_total, debit_total 
 
-
     #
-    # TODO: Handle transaction objects instead of strings
-    # TODO: Also show user when they made transaction and for how much?
+    # TODO: Implement this function
     #
     # Builds a file of collectors and class types. This file is stored
     # in the working directory and should be appended to when new 
     # collectors are found.
     #
-    def _build_collectors(self):
-        with open(".collectors", "w") as f:
+    def _write_collector_file(self):
+        #with open(".collectors", "w") as f:
             
             # Skip collector input on deposits since they're all same class
-            print("--- Beginning deposits ---")
-            for line in self._deposits:
-                self._collectors.append([line[0], "deposit"])
-                f.write(line[0].strip() + ", deposit\n")
+            # print("--- Beginning deposits ---")
+            # for t in self._deposits:
+            #     self._collectors.append([line[0], "deposit"])
+            #     f.write(line[0].strip() + ", deposit\n")
 
-            print("--- Beginning debits ---")
-            for line in self._debits:
-                collector_type = self._get_collector_input(line)
-                self._collectors.append([line[0], collector_type])
-                f.write(line[0].strip() + ", " + collector_type + "\n")
+            # print("--- Beginning debits ---")
+            # for line in self._debits:
+            #     collector_type = self._get_collector_input(line)
+            #     self._collectors.append([line[0], collector_type])
+            #     f.write(line[0].strip() + ", " + collector_type + "\n")
 
+        return 'TODO: Implement _write_collector_file'
 
     #
     # Helper function for build collectors. Prompts user for what kind of 
@@ -353,13 +320,12 @@ class USAAnalyzer:
             if k == 0:
                 collector_type = input("Please enter new type: ")
             else:
-                collector_type = self._collector_types.get(k)
+                collector_type = self._classifiers.get(k)
         
             answer = input("Set " + collector[0] + " as " + collector_type + " [Y]\\n?: ")
 
 
         return collector_type
-
 
     #
     # TODO: Handle transaction objects instead of strings
@@ -367,36 +333,42 @@ class USAAnalyzer:
     # Builds a list of collectors from a file. Parses current list of deposits and
     # debits to add new collectors if necessary.
     #
-    def _get_collectors(self):
+    def _read_collector_file(self):
         # Build list of collectors from file
         with open(".collectors", "r") as f:
             line = f.readline()
 
             while line:
                 temp = line.split(", ")
+                temp[1] = temp[1].strip()
                 self._collectors.append(temp)
-
                 line = f.readline()
 
         # Append to an existing file containing collectors
         with open(".collectors", "a") as f:
-            for transaction in self._deposits:
+            # for transaction in self._deposits:
+            #     # If the collector isn't found in the list of collectors,
+            #     # prompt user for collector type and append to file. I can
+            #     # skip collector input for deposits since they are all the
+            #     # same class.
+            #     if not self._has_collector(transaction[0]):
+            #         print("--- Adding new deposits ---")
+            #         self._collectors.append([transaction[0], "deposit"])
+            #         f.write(transaction[0].strip() + ", deposit\n")
+
+            # for transaction in self._debits:
+            #     if not self._has_collector(transaction[0]):
+            #         print("--- Found new debit ---")
+            #         collector_type = self._get_collector_input(transaction)
+            #         self._collectors.append([transaction[0], collector_type])
+            #         f.write(transaction[0].strip() + ", " + collector_type + "\n")
+            for t in self._transactions:
                 # If the collector isn't found in the list of collectors,
-                # prompt user for collector type and append to file. I can
-                # skip collector input for deposits since they are all the
-                # same class.
-                if not self._has_collector(transaction[0]):
-                    print("--- Adding new deposits ---")
-                    self._collectors.append([transaction[0], "deposit"])
-                    f.write(transaction[0].strip() + ", deposit\n")
-
-            for transaction in self._debits:
-                if not self._has_collector(transaction[0]):
-                    print("--- Found new debit ---")
-                    collector_type = self._get_collector_input(transaction)
-                    self._collectors.append([transaction[0], collector_type])
-                    f.write(transaction[0].strip() + ", " + collector_type + "\n")
-
+                # prompt user for collector type and append to file.
+                if not self._has_collector(t.name):
+                    print("--- Adding new transactions ---")
+                    self._collectors.append([t.name, t.transaction_type])
+                    f.write(t.name, ',', t.transaction_type, '\n')      
 
     #
     # Helper function for get collector. Emulates Java .contains function for
@@ -426,4 +398,3 @@ def main():
 
 
 main()
-
