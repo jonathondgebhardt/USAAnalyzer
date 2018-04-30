@@ -41,20 +41,36 @@ import argparse
 
 class Transaction:
 
+    # TODO: Fix Transaction instantiations
     def __init__(self, name, transaction_type, transaction_list):
         self.name = name
+        #1: "deposit", 2: "misc", 3: "grocery", 4: "restaurant", 5: "bill", 6: "coffee", 7: "saving"
         self.transaction_type = transaction_type
-        self.transaction_list = []
+        self.transaction_dates = []
+        self.transaction_total = 0
         self.transaction_list.append(transaction_list)
 
     def __str__(self):
         return self.name + ": " + self.transaction_type + ", " + str(self.transaction_list)
 
     def __eq__(self, other):
-        if isinstance(self, other.__class__):
-            return self.name == other.name
-        else:
+        if not isinstance(self, other.__class__):
             return False
+        
+        # if self.name != other.name:
+        #     return False
+        
+        # self_date = self.transaction_list[0][0]
+        # self_money = self.transaction_list[0][1]
+        # #print('checking', self_date, 'against', str(other.transaction_list))
+        # for t in other.transaction_list:
+        #     if self_date == t[0] and self_money == t[1]:
+        #         return True
+
+        # return False
+
+        return self.name == other.name and self.transaction_type == other.transaction_type
+
         
     def get_transaction_total(self):
         total = 0
@@ -114,7 +130,7 @@ class USAAnalyzer:
 
         result = ""
         for t in self._transactions:
-            result += t + '\n'
+            result += str(t) + '\n'
 
         # for line in portions:
         #     val = 0.0
@@ -195,18 +211,24 @@ class USAAnalyzer:
         
         for i in range(len(self._transactions)):
             current = self._transactions[i]
-            
-            # TODO: Fix this line
-            if current not in self._transactions:
-                for j in range(i, len(self._transactions)):
-                    next_t = self._transactions[j]
 
-                    if next_t.name == current.name and next_t.transaction_type == current.transaction_type:
-                        current.transaction_list.append(next_t.transaction_list.pop())
-                        
-                
+            # If the transaction is not already in the list, add it to the list
+            if current not in new_transaction_list:
                 new_transaction_list.append(current)
+            
+            # Otherwise, we need to find the matching name and add dates/money
+            else:
+                for t in new_transaction_list:
+                    if t.name == current.name:
+                        t.transaction_list.append(t.transaction_list.pop())
+            
+            #print('length of list:', len(new_transaction_list))
                 
+        for t in new_transaction_list:
+            if t.name == 'WSU PR ACCOUNT PAYROLL ***********4257':
+                for n in t.transaction_list:
+                    print(len(n))
+
         self._transactions = new_transaction_list
 
     #
@@ -388,6 +410,16 @@ def main():
     parser.add_argument("file_name", help="name of raw USAA bank statement to be analyzed")
     args = parser.parse_args()
     
+    #WSU PR ACCOUNT PAYROLL ***********4257: deposit, [['02/01', 150.23]]
+    # t1 = Transaction('WSU PR ACCOUNT PAYROLL ***********4257', 'deposit', ['02/01', 150.23])
+    # t2 = Transaction('WSU PR ACCOUNT PAYROLL ***********4257', 'deposit', ['02/15', 187.72])
+
+    # print(t1 == t2)
+
+    # l1 = [t1]
+
+    # print(t2 not in l1)
+
     # If arg file is valid, continue
     if os.path.isfile(args.file_name) is not None:
         analyzer = USAAnalyzer(args.file_name)
