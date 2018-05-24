@@ -24,7 +24,7 @@ This script has some drawbacks:
 #       by transaction or keeping them all separate. Grouping them 
 #       assumes that each transaction is the same class. What if one
 #       transaction is a red bull bought at a gas station and another
-#       transaction is gas bought at the same gas station. Red bulls
+#       transaction is gas bought at the same gas station? Red bulls
 #       and gas should be differntiated. Right now, they're lumped
 #       into the same category, and as a result, the analysis is imprecise.
 #
@@ -41,13 +41,16 @@ import argparse
 
 class Transaction:
 
+#1: "deposit", 2: "misc", 3: "grocery", 4: "restaurant", 5: "bill", 6: "coffee", 7: "saving"
+
     # TODO: Fix Transaction instantiations
     def __init__(self, name, transaction_type, transaction_list):
         self.name = name
-        #1: "deposit", 2: "misc", 3: "grocery", 4: "restaurant", 5: "bill", 6: "coffee", 7: "saving"
         self.transaction_type = transaction_type
         self.transaction_dates = []
         self.transaction_total = 0
+
+        self.transaction_list = []
         self.transaction_list.append(transaction_list)
 
     def __str__(self):
@@ -83,8 +86,7 @@ class Transaction:
 
 class USAAnalyzer:
 
-    _money_pattern = re.compile('\d*[,]*\d+\.\d+')
-    _classifiers = {1: "deposit", 2: "misc", 3: "grocery", 4: "restaurant", 5: "bill", 6: "coffee", 7: "saving"}
+    _classifiers = {1: 'deposit', 2: 'misc', 3: 'grocery', 4: 'restaurant', 5: 'bill', 6: 'coffee', 7: 'saving'}
     _portions = []
     _collectors = []
     _transactions = []
@@ -93,33 +95,39 @@ class USAAnalyzer:
         # Open file for reading
         with open(file_name, "r") as f:
             line = f.readline()
-           
-            # Skip information I don't know how to handle yet
+
+            # Skip information I don't know how to handle yet. In the future,
+            # I'd like to use this information to validate file parsing.
             while line:
-                if line == "    DEPOSITS AND OTHER CREDITS\n":
+                if line == 'DEPOSITS AND OTHER CREDITS\n':
                     break
                 line = f.readline()
-            
-            # Build a list of transactions. It will contain debits and deposits
-            # together.
+           
+
+            # Build a list of transactions. This function will populate
+            # self._transactions
             self._get_transactions(f)
 
-        # Condense the list to make it more succinct
+        # Condense the list to make it more succinct. Similar to 
+        # self._get_transactions(), this function will store the result in
+        # self._transactions.
         self._condense_transactions()
 
-        # Retrieve a list of collectors. Add unknown ones if necessary. 
-        if os.path.isfile(".collectors"): 
+        # Retrieve a list of collectors if it exists. Add unknown ones 
+        # if necessary. 
+        if os.path.isfile('.collectors'): 
             # If collectors file doesn't exist, read from file
-            print("Found collectors file")
+            print('Found collectors file')
             self._read_collector_file()
-            
+        
+        # Otherwise, no list of collectors in working directory. Build 
+        # one from list of deposits and debits and write contents to file
         else:
-            # No list of collectors in working directory, build one from
-            # list of deposits and debits and write contents to file
             print("Collectors file not found, performing setup")
             self._write_collector_file()
 
-        # TODO: classify transactions
+        # TODO: classify transactions, print results in a meaningful way.
+        #       I'd like to eventually use a graphics library to show a chart.
 
         
     def __str__(self):
@@ -150,13 +158,13 @@ class USAAnalyzer:
     # a collector. I'm assuming these collectors are unique so that I can 
     # classify them as to what kind of transaction it is: bill, gas, etc.
     #
-    def _get_collector_string(self, line):
-        result = ""
-        for token in line:
-            if len(token) > 0:
-                result += token + " "
-
-        return result.strip()
+#    def _get_collector_string(self, line):
+#        result = ""
+#        for token in line:
+#            if len(token) > 0:
+#                result += token + " "
+#
+#        return result.strip()
 
     #
     # Parses an input file until a specified stop point. Uses a regular
@@ -165,43 +173,63 @@ class USAAnalyzer:
     # file comes from USAA.
     #
     def _get_transactions(self, f):
+        date_pattern = re.compile('\d+\/\d+')
+        star_pattern = re.compile('^\*')
+
+
         transaction_type = 'deposit'
         
         line = f.readline()
         while line:
             
             # Break at next section
-            if line == ' ACCOUNT BALANCE SUMMARY\n':
-                break
-            elif line == '    OTHER DEBITS\n':
+            if line == 'OTHER DEBITS\n':
                 transaction_type = 'debit'
-            
-            tokens = line.split(" ")
 
-            # Parse tokens looking for money pattern
-            for token in tokens:
-                if self._money_pattern.match(token):
-                    date = tokens[0]                      # date is first index
-                    money = float(token.replace(",", "")) # remove commas
-                    
-                    # USAA formats their statements so that internal transactions
-                    # only have one line. Consequently, if it's not an internal 
-                    # transaction, read next line to get collector. Otherwise, trim
-                    # up line appropriately.
-                    if "USAA" not in tokens:
-                        line = f.readline()
-                        tokens = line.split(" ")
-
+            # Each transaction is preceeded by a date. If we find another date while
+            # parsing transaction info, we have reached another transaction.
+            if date_pattern.match(line):
+                date = line.replace('\n', '')
+                line = f.readline()
+                
+                temp = []
+                for i in range(6):
+                    if date_pattern.match(line) or line == 'OTHER DEBITS\n':
+                        break
                     else:
-                        tokens = tokens[10:]
+                        temp.append(line)
+                        line = f.readline()
 
-                    name = self._get_collector_string(tokens)
+                money_line = temp[0]
+                money_line_tokens = money_line.split(' ')
+                money = float(money_line_tokens[0].replace(',', '')) # remove commas
+                
+                # Generally, line 1 contains amount and type, line 2 is when 
+                # transaction cleared, line 3 is where money is going or coming 
+                # from. Some transaction details are shorter so we will handle 
+                # those cases.
+                collector = 'DEFAULT'
+                if len(temp) >= 4:
+                    if star_pattern.match(temp[3]):
+                        name = temp[2]
+                    else:
+                        name = temp[3]
+                elif len(temp) == 2:
+                    name = temp[1]
+                elif len(temp) < 2:
+                    name = ' '.join(money_line_tokens[1:])
 
-                    transaction = Transaction(name, transaction_type, [date, money])
-                    self._transactions.append(transaction)
+                transaction = Transaction(name, transaction_type, [date, money])
+                self._transactions.append(transaction)
 
-            line = f.readline()
-          
+            # If we've gotten this far, we've reached the summary part of the
+            # bank statement so we can stop.
+            elif line == 'DATE..........BALANCE\n':
+                break
+            
+            else:
+                line = f.readline()
+
     #
     # Group transactions by transaction name in order to make list
     # more concise.
@@ -235,12 +263,12 @@ class USAAnalyzer:
     # Helper function for _condense_transactions. Overriding the __eq__
     # function will eliminate the need of this function.
     #
-    def _contains(self, arr, item):
-        for a in arr:
-            if a.name == item.name:
-                return True
-
-        return False
+#    def _contains(self, arr, item):
+#        for a in arr:
+#            if a.name == item.name:
+#                return True
+#
+#        return False
 
     #
     # Builds a list of money spent on classifcation type. Returns 
@@ -410,21 +438,20 @@ def main():
     parser.add_argument("file_name", help="name of raw USAA bank statement to be analyzed")
     args = parser.parse_args()
     
-    #WSU PR ACCOUNT PAYROLL ***********4257: deposit, [['02/01', 150.23]]
-    # t1 = Transaction('WSU PR ACCOUNT PAYROLL ***********4257', 'deposit', ['02/01', 150.23])
-    # t2 = Transaction('WSU PR ACCOUNT PAYROLL ***********4257', 'deposit', ['02/15', 187.72])
-
-    # print(t1 == t2)
-
-    # l1 = [t1]
-
-    # print(t2 not in l1)
-
     # If arg file is valid, continue
     if os.path.isfile(args.file_name) is not None:
-        analyzer = USAAnalyzer(args.file_name)
-        print(analyzer)
-        
+        file_name = args.file_name
+       
+        # Python cannot read pdf encoding but we want to accept pdf's as input
+        # so convert to text file if needed.
+        if file_name.endswith('.pdf'):
+            os.system('pdftotext '+file_name)    
+            file_name = file_name.replace('.pdf', '.txt')
+
+        analyzer = USAAnalyzer(file_name)
+#        print(analyzer)
+    
+    # Otherwise, tell user and quit
     else:
         print("Error: File " + args.file_name + " does not exist")
 
