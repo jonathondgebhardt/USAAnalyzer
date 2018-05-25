@@ -40,10 +40,8 @@ import argparse
 
 
 class Transaction:
-
 #1: "deposit", 2: "misc", 3: "grocery", 4: "restaurant", 5: "bill", 6: "coffee", 7: "saving"
 
-    # TODO: Fix Transaction instantiations
     def __init__(self, name, transaction_type, transaction_list):
         self.name = name
         self.transaction_type = transaction_type
@@ -60,18 +58,6 @@ class Transaction:
         if not isinstance(self, other.__class__):
             return False
         
-        # if self.name != other.name:
-        #     return False
-        
-        # self_date = self.transaction_list[0][0]
-        # self_money = self.transaction_list[0][1]
-        # #print('checking', self_date, 'against', str(other.transaction_list))
-        # for t in other.transaction_list:
-        #     if self_date == t[0] and self_money == t[1]:
-        #         return True
-
-        # return False
-
         return self.name == other.name and self.transaction_type == other.transaction_type
 
         
@@ -90,6 +76,7 @@ class USAAnalyzer:
     _portions = []
     _collectors = []
     _transactions = []
+    _num_transactions = 0
 
     def __init__(self, file_name):
         # Open file for reading
@@ -114,22 +101,19 @@ class USAAnalyzer:
         self._condense_transactions()
 
         # Retrieve a list of collectors if it exists. Add unknown ones 
-        # if necessary. 
-        if os.path.isfile('.collectors'): 
-            # If collectors file doesn't exist, read from file
-            print('Found collectors file')
-            self._read_collector_file()
-        
+        # if necessary. If collectors file doesn't exist, read from file.
         # Otherwise, no list of collectors in working directory. Build 
-        # one from list of deposits and debits and write contents to file
+        # one from list of deposits and debits and write contents to file.
+        if os.path.isfile('.collectors'): 
+#            print('Found collectors file')
+            self._read_collector_file()
         else:
-            print("Collectors file not found, performing setup")
+#            print("Collectors file not found, performing setup")
             self._write_collector_file()
 
         # TODO: classify transactions, print results in a meaningful way.
         #       I'd like to eventually use a graphics library to show a chart.
 
-        
     def __str__(self):
         portions, deposit_total, debit_total = self._get_portions()
         val_total = 0.0
@@ -154,19 +138,6 @@ class USAAnalyzer:
         return result
 
     #
-    # Creates a useful handle for where money goes to or comes from, called
-    # a collector. I'm assuming these collectors are unique so that I can 
-    # classify them as to what kind of transaction it is: bill, gas, etc.
-    #
-#    def _get_collector_string(self, line):
-#        result = ""
-#        for token in line:
-#            if len(token) > 0:
-#                result += token + " "
-#
-#        return result.strip()
-
-    #
     # Parses an input file until a specified stop point. Uses a regular
     # expression to match a money line. Handles the special case for 
     # USAA internal transactions and generic transactions given the
@@ -175,7 +146,6 @@ class USAAnalyzer:
     def _get_transactions(self, f):
         date_pattern = re.compile('\d+\/\d+')
         star_pattern = re.compile('^\*')
-
 
         transaction_type = 'deposit'
         
@@ -219,7 +189,7 @@ class USAAnalyzer:
                 elif len(temp) < 2:
                     name = ' '.join(money_line_tokens[1:])
 
-                transaction = Transaction(name, transaction_type, [date, money])
+                transaction = Transaction(name.strip(), transaction_type, [date, money])
                 self._transactions.append(transaction)
 
             # If we've gotten this far, we've reached the summary part of the
@@ -230,45 +200,28 @@ class USAAnalyzer:
             else:
                 line = f.readline()
 
+        self._num_transactions = len(self._transactions)
+
     #
     # Group transactions by transaction name in order to make list
-    # more concise.
+    # more concise. This function will overwrite the original transaction
+    # list with the condensed version.
     #
     def _condense_transactions(self):
         new_transaction_list = []
-        
-        for i in range(len(self._transactions)):
-            current = self._transactions[i]
 
+        for current in self._transactions:
             # If the transaction is not already in the list, add it to the list
             if current not in new_transaction_list:
                 new_transaction_list.append(current)
-            
+
             # Otherwise, we need to find the matching name and add dates/money
             else:
                 for t in new_transaction_list:
-                    if t.name == current.name:
-                        t.transaction_list.append(t.transaction_list.pop())
-            
-            #print('length of list:', len(new_transaction_list))
-                
-        for t in new_transaction_list:
-            if t.name == 'WSU PR ACCOUNT PAYROLL ***********4257':
-                for n in t.transaction_list:
-                    print(len(n))
+                    if t == current:
+                        t.transaction_list.append(current.transaction_list.pop())
 
         self._transactions = new_transaction_list
-
-    #
-    # Helper function for _condense_transactions. Overriding the __eq__
-    # function will eliminate the need of this function.
-    #
-#    def _contains(self, arr, item):
-#        for a in arr:
-#            if a.name == item.name:
-#                return True
-#
-#        return False
 
     #
     # Builds a list of money spent on classifcation type. Returns 
@@ -318,7 +271,7 @@ class USAAnalyzer:
     # collectors are found.
     #
     def _write_collector_file(self):
-        #with open(".collectors", "w") as f:
+        with open('.collectors', 'w') as f:
             
             # Skip collector input on deposits since they're all same class
             # print("--- Beginning deposits ---")
@@ -331,6 +284,15 @@ class USAAnalyzer:
             #     collector_type = self._get_collector_input(line)
             #     self._collectors.append([line[0], collector_type])
             #     f.write(line[0].strip() + ", " + collector_type + "\n")
+        
+            for t in self._transactions:
+                if t.transaction_type == 'deposit':
+                    self._collectors.append([t.name, 'deposit'])
+                    f.write(t.name + ', deposit\n')
+                else:
+                    collector_type = self._get_collector_input(t)
+                    self._collectors.append([t.name, collector_type])
+                    f.write(t.name + ', ' + collector_type + '\n')
 
         return 'TODO: Implement _write_collector_file'
 
@@ -343,7 +305,9 @@ class USAAnalyzer:
     # and date. I want to avoid using the OOP with this project so I will
     # side with a simpler approach.
     #
-    def _get_collector_input(self, collector):
+    # TODO: Take transaction object as parameter
+    #
+    def _get_collector_input(self, transaction):
         answer = "???"
 
         # Emulate apt-get package manager style validation. Yes is 
@@ -353,7 +317,7 @@ class USAAnalyzer:
         while answer != "" and answer != "y" and answer != "Y":
 
             k = None
-            print("\n1. Deposit\n2. Miscellaneous\n3. Grocery\n4. Restaraunt\n5. Bill\n6. Coffee\n7. Savings\n0. Other\nPlease enter collector code for " + collector[0] + ": ", end = "")
+            print('\n1. Deposit\n2. Miscellaneous\n3. Grocery\n4. Restaraunt\n5. Bill\n6. Coffee\n7. Savings\n0. Other\nPlease enter collector code for "', transaction.name, '": ', end = '')
 
             while k is None:
                 try:
@@ -372,7 +336,7 @@ class USAAnalyzer:
             else:
                 collector_type = self._classifiers.get(k)
         
-            answer = input("Set " + collector[0] + " as " + collector_type + " [Y]\\n?: ")
+            answer = input("Set " + transaction.name + " as " + collector_type + " [Y]\\n?: ")
 
 
         return collector_type
@@ -418,7 +382,7 @@ class USAAnalyzer:
                 if not self._has_collector(t.name):
                     print("--- Adding new transactions ---")
                     self._collectors.append([t.name, t.transaction_type])
-                    f.write(t.name, ',', t.transaction_type, '\n')      
+                    f.write(t.name + "," + t.transaction_type + "\n")      
 
     #
     # Helper function for get collector. Emulates Java .contains function for
@@ -430,6 +394,9 @@ class USAAnalyzer:
                 return True
 
         return False 
+
+    def len(self):
+        return self._num_transactions
 
 
 def main():
@@ -449,11 +416,16 @@ def main():
             file_name = file_name.replace('.pdf', '.txt')
 
         analyzer = USAAnalyzer(file_name)
-#        print(analyzer)
+        print(analyzer.len())
     
     # Otherwise, tell user and quit
     else:
         print("Error: File " + args.file_name + " does not exist")
 
+#name, transaction_type, transaction_list
+#    t1 = Transaction('WSU', 'deposit', ['4/26', 200.22])
+#    t2 = Transaction('WSU', 'debit', ['4/26', 200.22])
+
+#    print(t1 == t2)
 
 main()
